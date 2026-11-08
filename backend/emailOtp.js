@@ -1,5 +1,5 @@
+
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
-import nodemailer from "nodemailer";
 import { transaction } from "./db.js";
 import { HttpError } from "./middleware/errors.js";
 
@@ -15,7 +15,9 @@ export function generateOtp() {
 }
 
 export function hashOtp(identity, otp, secret = process.env.JWT_SECRET) {
-  if (!secret) throw new HttpError(503, "OTP verification is not configured.", "OTP_NOT_CONFIGURED");
+  if (!secret) {
+    throw new HttpError(503, "OTP verification is not configured.", "OTP_NOT_CONFIGURED");
+  }
   return createHmac("sha256", secret)
     .update(`${identity}:${otp}`)
     .digest("hex");
@@ -49,37 +51,54 @@ export function getResendState({ resendCount, windowStartedAt, lastSentAt, now }
 function logDeliveryFailure(error) {
   console.error("Verification email delivery failed", {
     code: error?.code,
-    responseCode: error?.responseCode
+    responseCode: error?.responseCode,
+    message: error?.message
   });
 }
 
-export async function sendOtpEmail(to, otp, { createTransport = nodemailer.createTransport } = {}) {
-  const user = process.env.GMAIL_USER;
-  const password = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
-  if (!user || !password) {
-    throw new HttpError(503, "Gmail email verification is not configured.", "EMAIL_NOT_CONFIGURED");
+export async function sendOtpEmail(to, otp, { fetchImpl = fetch } = {}) {
+  const serviceId = process.env.EMAILJS_SERVICE_ID;
+  const templateId = process.env.EMAILJS_TEMPLATE_ID;
+  const publicKey = process.env.EMAILJS_PUBLIC_KEY;
+  const privateKey = process.env.EMAILJS_PRIVATE_KEY;
+
+  if (!serviceId || !templateId || !publicKey || !privateKey) {
+    throw new HttpError(
+      503,
+      "Email verification is not configured.",
+      "EMAIL_NOT_CONFIGURED"
+    );
   }
 
-  const transporter = createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: { user, pass: password }
-  });
-
   try {
-    await transporter.sendMail({
-      from: { name: "SETHU", address: user },
-      to,
-      subject: "Your SETHU verification code",
-      text: `Your SETHU verification code is ${otp}. It expires in 5 minutes.`,
-      html: `<p>Your SETHU verification code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:4px">${otp}</p><p>It expires in 5 minutes. If you did not request this, you can ignore this email.</p>`
-    });
+    const response = await fetchImpl(
+      "https://api.emailjs.com/api/v1.0/email/send",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service_id: serviceId,
+          template_id: templateId,
+          user_id: publicKey,
+          accessToken: privateKey,
+          template_params: {
+            to_email: to,
+            otp_code: otp
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`EmailJS returned status ${response.status}`);
+    }
   } catch (error) {
     logDeliveryFailure(error);
-    throw new HttpError(502, "Verification email could not be sent. Please try again later.", "EMAIL_DELIVERY_FAILED");
-  } finally {
-    transporter.close();
+    throw new HttpError(
+      502,
+      "Verification email could not be sent. Please try again later.",
+      "EMAIL_DELIVERY_FAILED"
+    );
   }
 }
 
@@ -89,11 +108,13 @@ export async function issueOtpForEmail(
 ) {
   const otp = generateOtp();
   const now = new Date();
+
   const issue = await runTransaction(async (client) => {
     await client.query(
       "DELETE FROM pending_registrations WHERE registration_expires_at <= now() AND email = $1",
       [email]
     );
+
     const pendingResult = await client.query(
       `SELECT id, email, resend_count, resend_window_started_at, last_sent_at
        FROM pending_registrations
@@ -101,6 +122,7 @@ export async function issueOtpForEmail(
        FOR UPDATE`,
       [email]
     );
+
     if (pendingResult.rows[0]) {
       const pending = pendingResult.rows[0];
       const state = getResendState({
@@ -109,7 +131,9 @@ export async function issueOtpForEmail(
         lastSentAt: pending.last_sent_at,
         now: now.getTime()
       });
+
       if (!state.allowed) return { kind: "RATE_LIMITED" };
+
       await client.query(
         `UPDATE pending_registrations
          SET otp_hash = $2, otp_expires_at = $3, attempt_count = 0, resend_count = $4,
@@ -124,6 +148,7 @@ export async function issueOtpForEmail(
           now
         ]
       );
+
       return { kind: "ISSUED", email: pending.email };
     }
 
@@ -134,6 +159,7 @@ export async function issueOtpForEmail(
        FOR UPDATE`,
       [email]
     );
+
     const user = userResult.rows[0];
     if (!user || user.email_verified) return { kind: "NO_SEND" };
 
@@ -141,9 +167,11 @@ export async function issueOtpForEmail(
       "SELECT resend_count, resend_window_started_at, last_sent_at FROM email_verification_otps WHERE user_id = $1 FOR UPDATE",
       [user.id]
     );
+
     const existing = otpResult.rows[0];
     let resendCount = 0;
     let windowStartedAt = now;
+
     if (existing) {
       const state = getResendState({
         resendCount: existing.resend_count,
@@ -151,7 +179,9 @@ export async function issueOtpForEmail(
         lastSentAt: existing.last_sent_at,
         now: now.getTime()
       });
+
       if (!state.allowed) return { kind: "RATE_LIMITED" };
+
       resendCount = state.resendCount;
       windowStartedAt = state.windowStartedAt;
     }
@@ -164,6 +194,7 @@ export async function issueOtpForEmail(
       windowStartedAt,
       now
     ];
+
     if (existing) {
       await client.query(
         `UPDATE email_verification_otps
@@ -180,11 +211,19 @@ export async function issueOtpForEmail(
         values
       );
     }
+
     return { kind: "ISSUED", email: user.email };
   });
 
   if (issue.kind === "RATE_LIMITED") {
-    throw new HttpError(429, "Too many verification code requests. Wait before requesting another.", "OTP_RATE_LIMITED");
+    throw new HttpError(
+      429,
+      "Too many verification code requests. Wait before requesting another.",
+      "OTP_RATE_LIMITED"
+    );
   }
-  if (issue.kind === "ISSUED") await deliverEmail(issue.email, otp);
+
+  if (issue.kind === "ISSUED") {
+    await deliverEmail(issue.email, otp);
+  }
 }

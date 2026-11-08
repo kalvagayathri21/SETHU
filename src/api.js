@@ -1,4 +1,10 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+const API_ORIGIN = /^https?:\/\//i.test(API_BASE) ? new URL(API_BASE).origin : "";
+
+export function getApiAssetUrl(path) {
+  if (!path || !path.startsWith("/uploads/") || !API_ORIGIN) return path;
+  return `${API_ORIGIN}${path}`;
+}
 
 function getCookie(name) {
   const prefix = `${name}=`;

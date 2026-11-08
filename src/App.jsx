@@ -1,6 +1,6 @@
 
 import React, { useEffect, useMemo, useState } from "react";
-import { apiRequest, getApiErrorMessage } from "./api.js";
+import { apiRequest, getApiAssetUrl, getApiErrorMessage } from "./api.js";
 import { sampleProviders as sampleProviderData, sampleServiceCategories } from "./sampleProviders.js";
 import { getBookingRequestBlockReason } from "./providerBooking.js";
 import AdminDashboard from "./AdminDashboard.jsx";
@@ -2769,7 +2769,7 @@ function ProviderDashboard({ onNavigate, business = false }) {
                   <form className="provider-profile-form business-profile-form" onSubmit={saveProfile}>
                     <div className="business-logo-editor">
                       <span className="business-logo-preview">
-                        {profileDraft.logo ? <img src={profileDraft.logo} alt="Business logo preview" /> : <Building2 size={26} />}
+                        {profileDraft.logo ? <img src={getApiAssetUrl(profileDraft.logo)} alt="Business logo preview" /> : <Building2 size={26} />}
                       </span>
                       <label className="provider-form-field"><span><Upload size={13} /> Business logo</span><input type="file" accept="image/*" onChange={handleLogoChange} /><small>Choose an image up to 2 MB. It stays in this browser session.</small></label>
                     </div>
@@ -2800,7 +2800,7 @@ function ProviderDashboard({ onNavigate, business = false }) {
               ) : (
                 business ? (
                   <div className="provider-profile-details business-profile-details">
-                    <span className="business-logo-preview business-profile-logo">{profile.logo ? <img src={profile.logo} alt={`${profile.name} logo`} /> : <Building2 size={28} />}</span>
+                    <span className="business-logo-preview business-profile-logo">{profile.logo ? <img src={getApiAssetUrl(profile.logo)} alt={`${profile.name} logo`} /> : <Building2 size={28} />}</span>
                     <div className="provider-profile-field"><span>Business name</span><strong>{profile.name}</strong></div>
                     <div className="provider-profile-field"><span>Email</span><strong>{profile.email}</strong></div>
                     <div className="provider-profile-field"><span>Phone</span><strong>{profile.phone}</strong></div>

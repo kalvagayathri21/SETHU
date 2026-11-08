@@ -11,12 +11,16 @@ import { authenticate, requireCsrf } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/errors.js";
 
 export const app = express();
-const allowedOrigins = [
+const defaultOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "http://localhost:5175",
   "http://127.0.0.1:5175"
 ];
+const allowedOrigins = (process.env.CORS_ORIGIN || defaultOrigins.join(","))
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);

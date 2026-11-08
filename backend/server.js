@@ -14,9 +14,9 @@ if (process.env.JWT_SECRET.length < 32) {
   process.exit(1);
 }
 
-const port = Number(process.env.API_PORT || 3001);
-const server = app.listen(port, () => {
-  console.log(`SETHU API listening on http://localhost:${port}`);
+const port = Number(process.env.PORT || process.env.API_PORT || 3001);
+const server = app.listen(port, "0.0.0.0", () => {
+  console.log(`SETHU API listening on 0.0.0.0:${port}`);
 });
 
 const expiryTimer = setInterval(() => {
