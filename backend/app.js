@@ -55,6 +55,23 @@ const authLimiter = rateLimit({
 });
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
+const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many verification code requests. Try again later.", code: "RATE_LIMITED" }
+});
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many verification attempts. Try again later.", code: "RATE_LIMITED" }
+});
+app.use("/api/auth/send-otp", otpSendLimiter);
+app.use("/api/auth/resend-otp", otpSendLimiter);
+app.use("/api/auth/verify-otp", otpVerifyLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/uploads", express.static(path.resolve(process.env.UPLOAD_DIR || "uploads"), {
   fallthrough: false,

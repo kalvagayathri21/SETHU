@@ -27,8 +27,8 @@ async function ensureSampleUser(client, { email, phone, name, role }) {
 
   const passwordHash = await bcrypt.hash(randomBytes(32).toString("hex"), 12);
   await client.query(
-    `INSERT INTO users (role,name,email,phone,password_hash,is_sample)
-     VALUES ($1,$2,$3,$4,$5,true)
+    `INSERT INTO users (role,name,email,phone,password_hash,is_sample,email_verified)
+     VALUES ($1,$2,$3,$4,$5,true,true)
      ON CONFLICT DO NOTHING`,
     [role, name, email, phone, passwordHash]
   );

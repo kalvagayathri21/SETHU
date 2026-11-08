@@ -1658,6 +1658,24 @@ input:focus-visible {
   margin-top: 5px;
 }
 
+.auth-verify-link {
+  align-self: center;
+  min-height: 38px;
+  margin-top: -6px;
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--purple);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-verify-link:hover {
+  color: var(--purple-dark);
+}
+
 .auth-switch {
   margin: 23px 0 0;
   color: #777287;
@@ -1709,6 +1727,74 @@ input:focus-visible {
   border-color: #d8ccf4;
   background: #f7f4ff;
   color: #6048a5;
+}
+
+.verify-layout {
+  min-height: 620px;
+}
+
+.verify-layout .auth-intro {
+  align-items: flex-start;
+  padding-top: 105px;
+}
+
+.verify-layout .auth-form-panel {
+  align-self: center;
+  padding-top: 52px;
+  padding-bottom: 52px;
+}
+
+.otp-form {
+  gap: 14px;
+}
+
+.otp-expiry {
+  margin: -2px 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.otp-expiry strong {
+  color: var(--purple);
+  font-variant-numeric: tabular-nums;
+}
+
+.otp-code-form {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.otp-input-wrap {
+  height: 58px;
+  justify-content: center;
+}
+
+.auth-input-wrap input.otp-input {
+  width: 100%;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.auth-input-wrap input.otp-input::placeholder {
+  color: #c9c4d2;
+  letter-spacing: 12px;
+}
+
+.otp-resend {
+  align-self: center;
+  min-height: 36px;
+  padding: 5px 12px;
+}
+
+.otp-resend:disabled,
+.auth-submit:disabled {
+  cursor: not-allowed;
+  opacity: .65;
 }
 
 .auth-select {
@@ -1855,6 +1941,11 @@ input:focus-visible {
     padding-top: 35px;
     padding-bottom: 35px;
   }
+
+  .verify-layout .auth-form-panel {
+    padding-top: 35px;
+    padding-bottom: 35px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1937,6 +2028,11 @@ input:focus-visible {
     padding: 31px 25px 34px;
   }
 
+  .verify-layout .auth-form-panel {
+    max-width: none;
+    padding: 31px 25px 34px;
+  }
+
   .auth-form-heading {
     margin-bottom: 22px;
   }
@@ -1946,6 +2042,11 @@ input:focus-visible {
   }
 
   .register-layout .auth-intro {
+    min-height: 205px;
+    padding-top: 28px;
+  }
+
+  .verify-layout .auth-intro {
     min-height: 205px;
     padding-top: 28px;
   }
@@ -1977,7 +2078,8 @@ input:focus-visible {
   }
 
   .auth-form-panel,
-  .register-layout .auth-form-panel {
+  .register-layout .auth-form-panel,
+  .verify-layout .auth-form-panel {
     padding-right: 18px;
     padding-left: 18px;
   }

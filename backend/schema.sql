@@ -7,12 +7,47 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   phone TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  email_verified BOOLEAN NOT NULL DEFAULT false,
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')),
   is_sample BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;
+UPDATE users SET email_verified = true WHERE role = 'ADMIN' OR is_sample = true;
+
+CREATE TABLE IF NOT EXISTS pending_registrations (
+  id UUID PRIMARY KEY,
+  role TEXT NOT NULL CHECK (role IN ('CUSTOMER', 'INDIVIDUAL_PROVIDER', 'BUSINESS_PROVIDER')),
+  email TEXT NOT NULL UNIQUE,
+  phone TEXT NOT NULL UNIQUE,
+  registration_data JSONB NOT NULL CHECK (jsonb_typeof(registration_data) = 'object'),
+  password_hash TEXT NOT NULL,
+  otp_hash TEXT NOT NULL,
+  otp_expires_at TIMESTAMPTZ NOT NULL,
+  registration_expires_at TIMESTAMPTZ NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 5),
+  resend_count INTEGER NOT NULL DEFAULT 0 CHECK (resend_count BETWEEN 0 AND 3),
+  resend_window_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS pending_registrations_expiry_idx
+  ON pending_registrations(registration_expires_at);
+
+CREATE TABLE IF NOT EXISTS email_verification_otps (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  otp_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 5),
+  resend_count INTEGER NOT NULL DEFAULT 0 CHECK (resend_count BETWEEN 0 AND 3),
+  resend_window_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS customer_profiles (
   user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

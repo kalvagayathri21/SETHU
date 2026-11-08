@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { pool, transaction } from "../db.js";
+import { generateOtp, hashOtp, issueOtpForEmail } from "../emailOtp.js";
 import { authenticate, allowRoles, requireCsrf } from "../middleware/auth.js";
 import { asyncRoute, HttpError } from "../middleware/errors.js";
 import { assert, schemas, validate } from "../middleware/validation.js";
@@ -185,17 +186,45 @@ router.get("/profile", asyncRoute(async (req, res) => {
 
 router.patch("/profile", asyncRoute(async (req, res) => {
   const { name, email, phone, description, experienceYears, address, city, locality, pinCode, businessName } = req.body;
+  const requestedEmail = email ? String(email).trim().toLowerCase() : null;
   const categories = req.body.categories;
   const serviceAreas = req.body.serviceAreas;
+  assert(!requestedEmail || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requestedEmail), 400, "Enter a valid email address.");
   if (categories !== undefined) assert(Array.isArray(categories) && categories.length <= 20, 400, "Invalid provider categories.");
   if (serviceAreas !== undefined) assert(Array.isArray(serviceAreas) && serviceAreas.length <= 100, 400, "Invalid provider service areas.");
-  await transaction(async (client) => {
+  const changedEmail = await transaction(async (client) => {
+    const currentUser = await client.query(
+      "SELECT email, role FROM users WHERE id = $1 FOR UPDATE",
+      [req.auth.id]
+    );
+    assert(currentUser.rows[0], 404, "Profile not found.");
+    const emailChanged = Boolean(
+      requestedEmail &&
+      requestedEmail !== currentUser.rows[0].email &&
+      currentUser.rows[0].role !== "ADMIN"
+    );
     const user = await client.query(
       `UPDATE users SET name = COALESCE($2, name), email = COALESCE($3, email),
-       phone = COALESCE($4, phone), updated_at = now() WHERE id = $1`,
-      [req.auth.id, name || null, email || null, phone || null]
+       email_verified = CASE WHEN $5 THEN false ELSE email_verified END,
+       phone = COALESCE($4, phone), updated_at = now()
+       WHERE id = $1 RETURNING email, role`,
+      [req.auth.id, name || null, requestedEmail, phone || null, emailChanged]
     );
     assert(user.rowCount, 404, "Profile not found.");
+    if (emailChanged) {
+      const otpRecord = await client.query(
+        "SELECT user_id FROM email_verification_otps WHERE user_id = $1 FOR UPDATE",
+        [req.auth.id]
+      );
+      if (otpRecord.rowCount) {
+        await client.query(
+          `UPDATE email_verification_otps
+           SET otp_hash = $2, expires_at = now(), attempt_count = 0, updated_at = now()
+           WHERE user_id = $1`,
+          [req.auth.id, hashOtp(req.auth.id, generateOtp(), process.env.JWT_SECRET)]
+        );
+      }
+    }
     if (req.auth.role === "CUSTOMER") {
       await client.query(
         `UPDATE customer_profiles SET address = COALESCE($2, address), city = COALESCE($3, city),
@@ -238,7 +267,9 @@ router.patch("/profile", asyncRoute(async (req, res) => {
         }
       }
     }
+    return emailChanged ? user.rows[0].email : null;
   });
+  if (changedEmail) await issueOtpForEmail(changedEmail);
   res.json({ data: { updated: true } });
 }));
 

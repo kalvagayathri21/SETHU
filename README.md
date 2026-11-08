@@ -11,7 +11,7 @@ SETHU is a responsive React + Vite service marketplace with an Express API and P
 
 1. Install dependencies with `npm install`.
 2. Create a PostgreSQL database named `sethu`.
-3. Copy `.env.example` to `.env` and set `DATABASE_URL` and a unique `JWT_SECRET` of at least 32 characters.
+3. Copy `.env.example` to `.env` and set `DATABASE_URL`, a unique `JWT_SECRET` of at least 32 characters, `GMAIL_USER`, and `GMAIL_APP_PASSWORD`. For Gmail SMTP, enable 2-Step Verification on the Google account, create an App Password, and use the full Gmail address plus the generated 16-character app password. Delivery uses `smtp.gmail.com`, port `465`, with secure TLS. Keep both values only in the backend environment, never in `VITE_*` variables or frontend code.
 4. Initialize the schema and sample service categories with `npm run db:setup`.
 5. Add repeatable sample listings with `npm run db:seed:samples`.
 6. Start the API in one terminal with `npm run dev:api`.
@@ -35,6 +35,8 @@ Provider accounts require administrator approval before their listings appear pu
 - Cookie-based API sessions, CSRF protection, role checks and server-side validation.
 
 Unauthenticated dashboard visits show sample data. Registration and login require the API and PostgreSQL to be running; no demo credentials are included.
+
+Customer and provider registration sends a six-digit, five-minute email verification code through Gmail SMTP. Registration data remains in an expiring pending-registration record, with the password bcrypt-hashed and OTP stored only as a keyed hash; the user account is created only when the code is verified. Existing customer and provider accounts continue to use email verification; admin and sample accounts remain exempt. Verification is limited to five attempts, and resends are limited to three per 15 minutes with a 30-second cooldown. The backend exposes `/api/auth/send-otp`, `/api/auth/resend-otp`, and `/api/auth/verify-otp`; registration sends the initial code automatically. Run `npm run db:setup` after updating to create the pending-registration table. Applying the schema does not delete or rewrite user records.
 
 ## Scripts
 

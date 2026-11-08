@@ -34,6 +34,13 @@ export const schemas = {
     email: z.string().trim().email().transform((value) => value.toLowerCase()),
     password: z.string().min(1).max(128)
   }),
+  sendOtp: z.object({
+    email: z.string().trim().email().max(254).transform((value) => value.toLowerCase())
+  }),
+  verifyOtp: z.object({
+    email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+    otp: z.string().regex(/^\d{6}$/)
+  }),
   service: z.object({
     name: z.string().trim().min(2).max(160),
     categoryId: z.coerce.number().int().positive(),

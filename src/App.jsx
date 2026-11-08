@@ -118,13 +118,15 @@ const sampleRequests = [
 ];
 
 function getPageFromPath(pathname) {
-  if (pathname === "/login") return "login";
-  if (pathname === "/register") return "register";
-  if (/^\/provider-profile\/[^/]+$/.test(pathname)) return "provider-profile";
-  if (pathname === "/customer-dashboard") return "customer-dashboard";
-  if (pathname === "/provider-dashboard") return "provider-dashboard";
-  if (pathname === "/business-dashboard") return "business-dashboard";
-  if (pathname === "/admin-dashboard") return "admin-dashboard";
+  const route = pathname.replace(/\/+$/, "") || "/";
+  if (route === "/login") return "login";
+  if (route === "/register") return "register";
+  if (route === "/verify-email") return "verify-email";
+  if (/^\/provider-profile\/[^/]+$/.test(route)) return "provider-profile";
+  if (route === "/customer-dashboard") return "customer-dashboard";
+  if (route === "/provider-dashboard") return "provider-dashboard";
+  if (route === "/business-dashboard") return "business-dashboard";
+  if (route === "/admin-dashboard") return "admin-dashboard";
   return "home";
 }
 
@@ -132,13 +134,45 @@ function getProviderProfileKey(pathname) {
   return pathname.match(/^\/provider-profile\/([^/]+)$/)?.[1] || "";
 }
 
+function getStoredVerificationValue(key) {
+  try {
+    return window.sessionStorage.getItem(key) || "";
+  } catch (error) {
+    console.error("Could not read email verification state", error);
+    return "";
+  }
+}
+
 function AuthPage({ page, onNavigate }) {
   const isLogin = page === "login";
+  const isVerification = page === "verify-email";
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [accountType, setAccountType] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState(() =>
+    getStoredVerificationValue("sethu_verification_email")
+  );
+  const [verificationDeadline, setVerificationDeadline] = useState(() =>
+    Number(getStoredVerificationValue("sethu_verification_expires_at")) || 0
+  );
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [otp, setOtp] = useState("");
+  const [emailVerified, setEmailVerified] = useState(false);
+
+  useEffect(() => {
+    if (!isVerification || !verificationDeadline) {
+      setRemainingSeconds(0);
+      return undefined;
+    }
+    const updateCountdown = () => {
+      setRemainingSeconds(Math.max(0, Math.ceil((verificationDeadline - Date.now()) / 1000)));
+    };
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(timer);
+  }, [isVerification, verificationDeadline]);
 
   function showMessage(type, message) {
     setStatus({ type, message });
@@ -165,6 +199,94 @@ function AuthPage({ page, onNavigate }) {
         ADMIN: "/admin-dashboard"
       };
       onNavigate(routeByRole[data.user.role] || "/");
+    } catch (error) {
+      showMessage("error", getApiErrorMessage(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function storeVerificationState(email, deadline) {
+    setVerificationEmail(email);
+    setVerificationDeadline(deadline);
+    try {
+      window.sessionStorage.setItem("sethu_verification_email", email);
+      window.sessionStorage.setItem("sethu_verification_expires_at", String(deadline));
+      return true;
+    } catch (error) {
+      console.error("Could not persist email verification state", error);
+      return false;
+    }
+  }
+
+  function clearVerificationState() {
+    try {
+      window.sessionStorage.removeItem("sethu_verification_email");
+      window.sessionStorage.removeItem("sethu_verification_expires_at");
+    } catch (error) {
+      console.error("Could not clear email verification state", error);
+    }
+  }
+
+  function handleOpenVerification(event) {
+    const email = event.currentTarget.closest("form")?.elements.email?.value.trim() || "";
+    if (email) {
+      const savedEmail = getStoredVerificationValue("sethu_verification_email");
+      const deadline = savedEmail === email
+        ? Number(getStoredVerificationValue("sethu_verification_expires_at")) || 0
+        : 0;
+      storeVerificationState(email, deadline);
+    }
+    setEmailVerified(false);
+    setOtp("");
+    setStatus({ type: "", message: "" });
+    onNavigate("/verify-email");
+  }
+
+  async function handleOtpVerification(event) {
+    event.preventDefault();
+    if (!event.currentTarget.reportValidity()) return;
+
+    setSubmitting(true);
+    setStatus({ type: "", message: "" });
+    try {
+      await apiRequest("/auth/verify-otp", {
+        method: "POST",
+        body: { email: verificationEmail.trim(), otp }
+      });
+      setEmailVerified(true);
+      setOtp("");
+      clearVerificationState();
+      showMessage("success", "Your email is verified. You can now log in with your email and password.");
+      window.setTimeout(() => onNavigate("/login"), 1500);
+    } catch (error) {
+      showMessage("error", getApiErrorMessage(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleResendOtp() {
+    if (!verificationEmail.trim()) {
+      showMessage("error", "Enter the email address you used to register.");
+      return;
+    }
+    setSubmitting(true);
+    setStatus({ type: "", message: "" });
+    try {
+      const path = verificationDeadline ? "/auth/resend-otp" : "/auth/send-otp";
+      await apiRequest(path, {
+        method: "POST",
+        body: { email: verificationEmail.trim() }
+      });
+      const saved = storeVerificationState(verificationEmail.trim(), Date.now() + 5 * 60 * 1000);
+      setOtp("");
+      showMessage(
+        saved ? "success" : "info",
+        saved
+          ? "If this email has an unverified account, a new code has been sent."
+          : "A new code was requested. Keep this page open, as your email could not be saved for a refresh."
+      );
     } catch (error) {
       showMessage("error", getApiErrorMessage(error));
     } finally {
@@ -207,8 +329,13 @@ function AuthPage({ page, onNavigate }) {
     };
     const city = String(formData.get("city") || "");
     const pinCode = String(formData.get("pinCode") || "");
+    const phone = String(formData.get("phone") || "").trim();
     const serviceAreas = String(formData.get("serviceAreas") || "")
       .split(",").map((area) => area.trim()).filter(Boolean);
+    if (!/^\+?[0-9]{7,15}$/.test(phone)) {
+      showMessage("error", "Enter a valid phone number with 7 to 15 digits.");
+      return;
+    }
     if (accountType !== "customer" && (!city || !pinCode || !serviceAreas.length)) {
       showMessage("error", "Enter your service city, PIN code and at least one locality.");
       return;
@@ -220,7 +347,7 @@ function AuthPage({ page, onNavigate }) {
         : String(formData.get("fullName") || ""),
       businessName: String(formData.get("businessName") || ""),
       email: String(formData.get("email") || ""),
-      phone: String(formData.get("phone") || ""),
+      phone,
       password,
       experienceYears: Number(formData.get("experience") || 0),
       description: "",
@@ -234,13 +361,16 @@ function AuthPage({ page, onNavigate }) {
     setSubmitting(true);
     try {
       const { data } = await apiRequest("/auth/register", { method: "POST", body: payload });
-      showMessage("success", "Your account has been created. Provider profiles require admin approval before receiving requests.");
-      const destination = {
-        CUSTOMER: "/customer-dashboard",
-        INDIVIDUAL_PROVIDER: "/provider-dashboard",
-        BUSINESS_PROVIDER: "/business-dashboard"
-      }[data.user.role];
-      window.setTimeout(() => onNavigate(destination || "/"), 650);
+      const saved =       storeVerificationState(data.email, Date.now() + 5 * 60 * 1000);
+      setEmailVerified(false);
+      setOtp("");
+      showMessage(
+        saved ? "success" : "info",
+        saved
+          ? "Your account has been created. Check your email for a verification code."
+          : "Your account has been created. Check your email for the code and keep this page open to verify it."
+      );
+      onNavigate("/verify-email");
     } catch (error) {
       showMessage("error", getApiErrorMessage(error));
     } finally {
@@ -275,14 +405,16 @@ function AuthPage({ page, onNavigate }) {
         </a>
       </header>
 
-      <div className={`auth-layout ${isLogin ? "login-layout" : "register-layout"}`}>
+      <div className={`auth-layout ${isVerification ? "verify-layout" : isLogin ? "login-layout" : "register-layout"}`}>
         <section className="auth-intro">
           <div className="auth-intro-content">
             <span className="auth-kicker">LOCAL HELP, ONE CONNECTION AWAY</span>
-            <h1>{isLogin ? <>Welcome<br /><span>back.</span></> : <>Find trusted local <span>services with SETHU.</span></>}</h1>
+            <h1>{isLogin ? <>Welcome<br /><span>back.</span></> : isVerification ? <>One last <span>step.</span></> : <>Find trusted local <span>services with SETHU.</span></>}</h1>
             <p>
               {isLogin
                 ? "Your local services, requests and trusted professionals are just around the corner."
+                : isVerification
+                  ? "Confirm your email to keep your SETHU account secure."
                 : "Join a community connecting everyday needs with trusted local services."}
             </p>
             <div className="auth-intro-note">
@@ -296,11 +428,13 @@ function AuthPage({ page, onNavigate }) {
 
         <section className="auth-form-panel">
           <div className="auth-form-heading">
-            <span className="auth-form-eyebrow">{isLogin ? "GOOD TO SEE YOU" : "GET STARTED FOR FREE"}</span>
-            <h2>{isLogin ? "Log in to SETHU" : "Create your account"}</h2>
+            <span className="auth-form-eyebrow">{isLogin ? "GOOD TO SEE YOU" : isVerification ? "EMAIL VERIFICATION" : "GET STARTED FOR FREE"}</span>
+            <h2>{isLogin ? "Log in to SETHU" : isVerification ? "Verify your email" : "Create your account"}</h2>
             <p>
               {isLogin
                 ? "Enter your details to continue."
+                : isVerification
+                  ? "Enter the six-digit code we sent to your email address."
                 : "Tell us a little about yourself to get started."}
             </p>
           </div>
@@ -311,13 +445,102 @@ function AuthPage({ page, onNavigate }) {
             </div>
           )}
 
-          {isLogin ? (
+          {isVerification ? (
+            emailVerified ? (
+              <button
+                className="primary-btn auth-submit"
+                type="button"
+                onClick={() => onNavigate("/login")}
+              >
+                Continue to log in <ArrowRight size={17} />
+              </button>
+            ) : (
+              <form className="auth-form otp-form" onSubmit={handleOtpVerification}>
+                <label className="auth-field">
+                  <span>Email address</span>
+                  <span className="auth-input-wrap">
+                    <Mail size={17} />
+                    <input
+                      key="verification-email"
+                      type="email"
+                      name="verificationEmail"
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                      value={verificationEmail}
+                      onChange={(event) => {
+                        const nextEmail = event.target.value;
+                        setVerificationEmail(nextEmail);
+                        setVerificationDeadline(0);
+                      }}
+                      required
+                    />
+                  </span>
+                </label>
+
+                <div className="otp-expiry" role="status" aria-live="polite">
+                  {verificationDeadline
+                    ? remainingSeconds > 0
+                      ? <>Code expires in <strong>{Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, "0")}</strong></>
+                      : "This code has expired. Request a new one."
+                    : "Request a verification code to begin."}
+                </div>
+
+                {verificationDeadline ? (
+                  <>
+                  <label className="auth-field">
+                    <span>Six-digit verification code</span>
+                    <span className="auth-input-wrap otp-input-wrap">
+                      <input
+                        className="otp-input"
+                        type="text"
+                        name="otp"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="[0-9]{6}"
+                        maxLength={6}
+                        placeholder="000000"
+                        value={otp}
+                        onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                        aria-label="Six-digit verification code"
+                        required
+                      />
+                    </span>
+                  </label>
+                  <button className="primary-btn auth-submit" type="submit" disabled={submitting || otp.length !== 6}>
+                    {submitting ? "Verifying..." : "Verify OTP"} <ArrowRight size={17} />
+                  </button>
+                    </>
+                ) : (
+                    <button
+                      className="primary-btn auth-submit"
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={submitting}
+                    >
+                      {submitting ? "Sending..." : "Send OTP"} <ArrowRight size={17} />
+                    </button>
+                )}
+
+                {verificationDeadline > 0 && (
+                    <button
+                      className="auth-text-button otp-resend"
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={submitting}
+                    >
+                      {submitting ? "Please wait..." : "Resend OTP"}
+                    </button>
+                )}
+              </form>
+            )
+          ) : isLogin ? (
             <form className="auth-form" onSubmit={handleLogin}>
               <label className="auth-field">
                 <span>Email address</span>
                 <span className="auth-input-wrap">
                   <Mail size={17} />
                   <input
+                    key="login-email"
                     type="email"
                     name="email"
                     placeholder="you@example.com"
@@ -368,6 +591,16 @@ function AuthPage({ page, onNavigate }) {
               <button className="primary-btn auth-submit" type="submit" disabled={submitting}>
                 {submitting ? "Signing in..." : "Log in"} <ArrowRight size={17} />
               </button>
+              <a
+                className="auth-verify-link"
+                href="/verify-email"
+                onClick={(event) => {
+                  event.preventDefault();
+                  handleOpenVerification(event);
+                }}
+              >
+                Verify your email
+              </a>
             </form>
           ) : (
             <form className="auth-form register-form" onSubmit={handleRegistration}>

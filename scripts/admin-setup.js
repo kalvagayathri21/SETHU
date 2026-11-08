@@ -132,8 +132,8 @@ export async function createAdminAccount({ credentials, transaction, bcrypt }) {
 
       const passwordHash = await bcrypt.hash(validated.ADMIN_PASSWORD, 12);
       const result = await client.query(
-        `INSERT INTO users (role,name,email,phone,password_hash)
-         VALUES ('ADMIN',$1,$2,$3,$4)
+        `INSERT INTO users (role,name,email,phone,password_hash,email_verified)
+         VALUES ('ADMIN',$1,$2,$3,$4,true)
          RETURNING id`,
         [validated.ADMIN_NAME, validated.ADMIN_EMAIL, validated.ADMIN_PHONE, passwordHash]
       );
